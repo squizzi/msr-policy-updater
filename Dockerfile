@@ -7,7 +7,6 @@ ADD . /go/src/
 WORKDIR /go/src
 
 RUN git config --global --add url."git@github.com:".insteadOf "https://github.com/"
-RUN --mount=type=ssh go mod vendor
 RUN --mount=type=ssh go build -o ./bin/linux/msr-policy-updater main.go
 
 FROM alpine:latest AS msr-policy-updater

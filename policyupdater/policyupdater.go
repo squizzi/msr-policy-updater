@@ -1,45 +1,63 @@
-package updater
+package policyupdater
 
 import (
 	"fmt"
 
+	"github.com/docker/dhe-deploy/gocode/pkg/api-client/models"
 	"github.com/sirupsen/logrus"
+
 	"github.com/squizzi/msr-policy-updater/msrclient"
 )
 
-type UpdatePolicies struct {
+type PolicyUpdater struct {
 	Username    string
 	Password    string
 	Host        string
 	PollMirrors bool
 	PushMirrors bool
+	BatchSize   int64
 }
 
-func New(username, password, host string, pollMirror, pushMirror bool) *UpdatePolicies {
-	return &UpdatePolicies{
+func New(username, password, host string, pollMirror, pushMirror bool, batchSize int64) *PolicyUpdater {
+	return &PolicyUpdater{
 		Username:    username,
 		Password:    password,
 		Host:        host,
 		PollMirrors: pollMirror,
 		PushMirrors: pushMirror,
+		BatchSize:   batchSize,
 	}
 }
 
-func (u *UpdatePolicies) Update() error {
+func (u *PolicyUpdater) Update() error {
 	client, err := msrclient.NewMSRAPIClient(u.Username, u.Password, u.Host, true)
 	if err != nil {
 		return fmt.Errorf("failed to get an MSR API client: %w", err)
 	}
 
-	logrus.Info("Getting list of all repositories")
+	logrus.Infof("Performing policy updates on all repositories in batches of %d", u.BatchSize)
 
-	repos, err := client.ListAllRepositories()
-	if err != nil {
-		return fmt.Errorf("failed to list all repositories: %w", err)
+	for {
+		// Iterate repositories in batches until nextPage is empty.
+		reposBatch, nextPage, err := client.ListRepositories(u.BatchSize, "")
+		if err != nil {
+			return fmt.Errorf("failed to list batch of repositories (page start: %s, page size: %d): %w", nextPage, u.BatchSize, err)
+		}
+
+		if err := u.updatePoliciesOnRepos(client, reposBatch); err != nil {
+			return err
+		}
+
+		if nextPage == "" {
+			logrus.Info("No additional batches of repositories to process")
+			break
+		}
 	}
 
-	logrus.Info("Iterating repository list and performing policy updates")
+	return nil
+}
 
+func (u *PolicyUpdater) updatePoliciesOnRepos(client *msrclient.MsrAPIClient, repos []*models.ResponsesRepository) error {
 	for _, r := range repos {
 		if u.PollMirrors {
 			logrus.Debugf("Getting list of poll mirror policies for repository: %q", *r.Name)

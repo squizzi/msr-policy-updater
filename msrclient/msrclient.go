@@ -60,15 +60,16 @@ func NewMSRAPIClient(username, password, host string, insecure bool) (*MsrAPICli
 		httpTransport: transport.Transport}, nil
 }
 
-func (c *MsrAPIClient) ListAllRepositories() ([]*models.ResponsesRepository, error) {
+func (c *MsrAPIClient) ListRepositories(pageSize int64, pageStart string) ([]*models.ResponsesRepository, string, error) {
 	r, err := c.client.Repositories.ListRepositories(
 		repositories.NewListRepositoriesParams().
-			WithPageSize(toInt64Ptr(10000)))
+			WithPageStart(&pageStart).
+			WithPageSize(&pageSize))
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
-	return r.Payload.Repositories, nil
+	return r.Payload.Repositories, r.XNextPageStart, nil
 }
 
 func (c *MsrAPIClient) ListPollMirrorPolicies(reponame string) ([]*models.ResponsesPollMirroringPolicy, error) {
@@ -124,10 +125,6 @@ func (c *MsrAPIClient) UpdatePollMirrorPolicyUsernamePassword(policyID, username
 	}
 
 	return nil
-}
-
-func toInt64Ptr(i int64) *int64 {
-	return &i
 }
 
 func toBoolPtr(v bool) *bool {
