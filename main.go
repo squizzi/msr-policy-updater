@@ -42,6 +42,8 @@ with a target MSR domain name with a new username and password combo.`,
 			pushMirror := c.Flag("push-mirroring").Changed
 			pollMirror := c.Flag("poll-mirroring").Changed
 
+			logrus.Infof("Updating mirroring policies (Push: %t, Poll: %t)", pushMirror, pollMirror)
+
 			u := updater.New(
 				username.String(),
 				password.String(),
