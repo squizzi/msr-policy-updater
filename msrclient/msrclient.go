@@ -12,17 +12,10 @@ import (
 	"github.com/go-openapi/strfmt"
 )
 
-var ErrClientNotAuthenticated = errors.New("problem during authentication, check provided username and password")
-var ErrClientForbidden = errors.New("provided username and password does not have access to this resource")
-
-// MSRAPIClient is an interface that encapsulates API requests to a MSR.
-type MSRAPIClient interface {
-	ListAllRepositories()
-	ListPollMirrorPolicies()
-	ListPushMirrorPolicies()
-	UpdatePollMirrorPolicyUsernamePassword()
-	UpdatePushMirrorPolicyUsernamePassword()
-}
+var (
+	ErrMirrorCredsIncorrect = errors.New("problem during authentication using the provided mirroring credentials: check provided mirroring username and password")
+	ErrUnauthorized         = errors.New("failed to authenticate with target MSR: check provided msr-username and msr-password")
+)
 
 // MsrAPIClient is a client that invokes API requests to a MSR.
 // Implements interface MSRAPIClient
@@ -34,9 +27,9 @@ type MsrAPIClient struct {
 	httpTransport http.RoundTripper
 }
 
-// NewMSRAPIClient creates an instance of MSRAPIClient corresponding to the
+// New reates an instance of MsrAPIClient corresponding to the
 // given host.
-func NewMSRAPIClient(username, password, host string, insecure bool) (*MsrAPIClient, error) {
+func New(username, password, host string, insecure bool) (*MsrAPIClient, error) {
 	transport := httptransport.New(host, "/", []string{"https"})
 
 	if insecure {
@@ -46,7 +39,7 @@ func NewMSRAPIClient(username, password, host string, insecure bool) (*MsrAPICli
 	}
 
 	if username == "" || password == "" {
-		return nil, ErrClientNotAuthenticated
+		return nil, ErrUnauthorized
 	}
 
 	transport.DefaultMediaType = "application/json"
@@ -66,16 +59,23 @@ func (c *MsrAPIClient) ListRepositories(pageSize int64, pageStart string) ([]*mo
 			WithPageStart(&pageStart).
 			WithPageSize(&pageSize))
 	if err != nil {
+		var unauthorizedErr *repositories.ListRepositoriesUnauthorized
+
+		if errors.As(err, &unauthorizedErr) {
+			return nil, "", ErrUnauthorized
+		}
+
 		return nil, "", err
 	}
 
 	return r.Payload.Repositories, r.XNextPageStart, nil
 }
 
-func (c *MsrAPIClient) ListPollMirrorPolicies(reponame string) ([]*models.ResponsesPollMirroringPolicy, error) {
+func (c *MsrAPIClient) ListPollMirrorPolicies(namespace, name string) ([]*models.ResponsesPollMirroringPolicy, error) {
 	pm, err := c.client.Repositories.ListRepoPollMirroringPolicies(
 		repositories.NewListRepoPollMirroringPoliciesParams().
-			WithReponame(reponame))
+			WithNamespace(namespace).
+			WithReponame(name))
 
 	if err != nil {
 		return nil, err
@@ -84,10 +84,11 @@ func (c *MsrAPIClient) ListPollMirrorPolicies(reponame string) ([]*models.Respon
 	return pm.Payload, nil
 }
 
-func (c *MsrAPIClient) ListPushMirrorPolicies(reponame string) ([]*models.ResponsesMirroringPolicy, error) {
-	pm, err := c.client.Repositories.ListRepoMirroringPolicies(
-		repositories.NewListRepoMirroringPoliciesParams().
-			WithReponame(reponame))
+func (c *MsrAPIClient) ListPushMirrorPolicies(namespace, name string) ([]*models.ResponsesPushMirroringPolicy, error) {
+	pm, err := c.client.Repositories.ListRepoPushMirroringPolicies(
+		repositories.NewListRepoPushMirroringPoliciesParams().
+			WithNamespace(namespace).
+			WithReponame(name))
 
 	if err != nil {
 		return nil, err
@@ -96,37 +97,47 @@ func (c *MsrAPIClient) ListPushMirrorPolicies(reponame string) ([]*models.Respon
 	return pm.Payload, nil
 }
 
-func (c *MsrAPIClient) UpdatePushMirrorPolicyUsernamePassword(policyID, username, password string) error {
+func (c *MsrAPIClient) UpdatePushMirrorPolicyUsernamePassword(policyID, namespace, name, username, password string) error {
 	_, err := c.client.Repositories.UpdateRepoPushMirroringPolicy(
 		repositories.NewUpdateRepoPushMirroringPolicyParams().
+			WithNamespace(namespace).
+			WithReponame(name).
 			WithPushmirroringpolicyid(policyID).
-			WithInitialEvaluation(toBoolPtr(false)).
 			WithBody(&models.FormsUpdatePushMirroringPolicy{
 				Username: username,
 				Password: password,
 			}))
 	if err != nil {
+		var badRequestErr *repositories.UpdateRepoPushMirroringPolicyBadRequest
+
+		if errors.As(err, &badRequestErr) {
+			return ErrMirrorCredsIncorrect
+		}
+
 		return err
 	}
 
 	return nil
 }
 
-func (c *MsrAPIClient) UpdatePollMirrorPolicyUsernamePassword(policyID, username, password string) error {
+func (c *MsrAPIClient) UpdatePollMirrorPolicyUsernamePassword(policyID, namespace, name, username, password string) error {
 	_, err := c.client.Repositories.UpdateRepoPollMirroringPolicy(
 		repositories.NewUpdateRepoPollMirroringPolicyParams().
+			WithNamespace(namespace).
+			WithReponame(name).
 			WithPollmirroringpolicyid(policyID).
 			WithBody(&models.FormsUpdatePollMirroringPolicy{
 				Username: username,
 				Password: password,
 			}))
 	if err != nil {
+		var badRequestErr *repositories.UpdateRepoPollMirroringPolicyBadRequest
+
+		if errors.As(err, &badRequestErr) {
+			return ErrMirrorCredsIncorrect
+		}
 		return err
 	}
 
 	return nil
-}
-
-func toBoolPtr(v bool) *bool {
-	return &v
 }
