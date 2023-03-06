@@ -45,21 +45,21 @@ with a target MSR domain name with a new username and password combo.`,
 		RunE: func(c *cobra.Command, args []string) error {
 			lvl, err := logrus.ParseLevel(logLevel)
 			if err != nil {
-				logrus.Fatalf("failed to parse defined log-level: %q: %s", logLevel, err)
+				return fmt.Errorf("failed to parse defined log-level: %q: %s", logLevel, err)
 			}
 
 			logrus.SetLevel(lvl)
 
 			if err := markFlagsRequired(c, []string{"username", "password", "msr-url", "msr-username", "msr-password"}); err != nil {
-				logrus.Fatalf("failed to mark flags required: %s", err)
+				return fmt.Errorf("failed to mark flags required: %s", err)
 			}
 
 			if !c.Flag("poll-mirroring").Changed && !c.Flag("push-mirroring").Changed {
 				err := c.Usage()
 				if err != nil {
-					logrus.Fatalf("failed to print command usage: %s", err)
+					return fmt.Errorf("failed to print command usage: %w", err)
 				}
-				logrus.Fatalf("either 'poll-mirroring' or 'push-mirroring' flags must be specified")
+				return fmt.Errorf("either 'poll-mirroring' or 'push-mirroring' flags must be specified")
 			}
 
 			logrus.Infof("Updating mirroring policies (Push: %t, Poll: %t)", pushMirror, pollMirror)
